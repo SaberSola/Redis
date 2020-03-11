@@ -770,18 +770,28 @@ int rdbSaveRio(rio *rdb, int *error) {
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
+    //写入Rbd的版本号
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
-    if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
-    if (rdbSaveInfoAuxFields(rdb) == -1) goto werr;
 
+    if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
+
+    if (rdbSaveInfoAuxFields(rdb) == -1) goto werr;
+    // 遍历所有数据库
     for (j = 0; j < server.dbnum; j++) {
+
+        //指向数据库
         redisDb *db = server.db+j;
+        //指向数据库件空间
         dict *d = db->dict;
+        // 跳过空数据库
         if (dictSize(d) == 0) continue;
+        //获取迭代器
         di = dictGetSafeIterator(d);
+
         if (!di) return C_ERR;
 
         /* Write the SELECT DB opcode */
+        //写入Db选择器
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
         if (rdbSaveLen(rdb,j) == -1) goto werr;
 
@@ -793,6 +803,7 @@ int rdbSaveRio(rio *rdb, int *error) {
         db_size = (dictSize(db->dict) <= UINT32_MAX) ?
                                 dictSize(db->dict) :
                                 UINT32_MAX;
+        //过期时间的舰队
         expires_size = (dictSize(db->expires) <= UINT32_MAX) ?
                                 dictSize(db->expires) :
                                 UINT32_MAX;
@@ -801,13 +812,21 @@ int rdbSaveRio(rio *rdb, int *error) {
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
+
+        /* Iterate this DB writing every entry
+         *
+         * 遍历数据库，并写入每个键值对的数据
+         */
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
 
+            // 根据 keystr ，在栈中创建一个 key 对象
             initStaticStringObject(key,keystr);
+            //获取过期的key
             expire = getExpire(db,&key);
+            // 保存键值对数据
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
         }
         dictReleaseIterator(di);
@@ -815,6 +834,7 @@ int rdbSaveRio(rio *rdb, int *error) {
     di = NULL; /* So that we don't release it again on error. */
 
     /* EOF opcode */
+    //写入eof 文档结尾
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
 
     /* CRC64 checksum. It will be zero if checksum computation is disabled, the
@@ -857,6 +877,9 @@ werr: /* Write error. */
 }
 
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
+/**
+ * 将数据库保存到磁盘上。
+ */
 int rdbSave(char *filename) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
@@ -864,6 +887,7 @@ int rdbSave(char *filename) {
     rio rdb;
     int error = 0;
 
+    //创建临时文文件
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
@@ -876,22 +900,28 @@ int rdbSave(char *filename) {
             strerror(errno));
         return C_ERR;
     }
-
+    //初始化IO
     rioInitWithFile(&rdb,fp);
+    //rdb 操作
     if (rdbSaveRio(&rdb,&error) == C_ERR) {
         errno = error;
         goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
+    // 冲洗缓存，确保数据已写入磁盘 刷盘
     if (fflush(fp) == EOF) goto werr;
     if (fsync(fileno(fp)) == -1) goto werr;
     if (fclose(fp) == EOF) goto werr;
 
     /* Use RENAME to make sure the DB file is changed atomically only
-     * if the generate DB file is ok. */
+     * if the generate DB file is ok.
+     *
+     * 使用 RENAME ，原子性地对临时文件进行改名，覆盖原来的 RDB 文件。 */
+
     if (rename(tmpfile,filename) == -1) {
         char *cwdp = getcwd(cwd,MAXPATHLEN);
+
         serverLog(LL_WARNING,
             "Error moving temp DB file %s on the final "
             "destination %s (in server root dir %s): %s",
@@ -902,9 +932,10 @@ int rdbSave(char *filename) {
         unlink(tmpfile);
         return C_ERR;
     }
-
+    //报错log
     serverLog(LL_NOTICE,"DB saved on disk");
     server.dirty = 0;
+    // 记录最后一次完成 SAVE 的时间
     server.lastsave = time(NULL);
     server.lastbgsave_status = C_OK;
     return C_OK;
@@ -917,22 +948,30 @@ werr:
 }
 
 int rdbSaveBackground(char *filename) {
-    pid_t childpid;
-    long long start;
+    pid_t childpid; //子进程的进程号
+    long long start; //开始时间
 
+    // 如果 BGSAVE 已经在执行，那么出错
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
 
+    // 记录 BGSAVE 执行前的数据库被修改次数
     server.dirty_before_bgsave = server.dirty;
-    server.lastbgsave_try = time(NULL);
 
+    // 最近一次尝试执行 BGSAVE 的时间
+    server.lastbgsave_try = time(NULL);
+    // fork() 开始前的时间，记录 fork() 返回耗时用
     start = ustime();
     if ((childpid = fork()) == 0) {
         int retval;
 
         /* Child */
+        // 关闭网络连接 fd
         closeListeningSockets(0);
+        //设置进程名称方便识别
         redisSetProcTitle("redis-rdb-bgsave");
+        //开始生成文件
         retval = rdbSave(filename);
+        //保存成功
         if (retval == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
 
@@ -942,9 +981,11 @@ int rdbSaveBackground(char *filename) {
                     private_dirty/(1024*1024));
             }
         }
+        // 向父进程发送信号
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
-        /* Parent */
+
+        /* Parent 父进程 */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
@@ -1732,10 +1773,14 @@ int rdbSaveToSlavesSockets(void) {
 }
 
 void saveCommand(client *c) {
-    if (server.rdb_child_pid != -1) {
+
+	// BGSAVE 已经在执行中，不能再执行 SAVE
+    // 否则将产生竞争条件
+    if (server.rdb_child_pid != -1) { //server pid 子进程
         addReplyError(c,"Background save already in progress");
         return;
     }
+    // 执行
     if (rdbSave(server.rdb_filename) == C_OK) {
         addReply(c,shared.ok);
     } else {

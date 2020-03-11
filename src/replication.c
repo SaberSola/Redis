@@ -306,6 +306,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 
 /* Feed the slave 'c' with the replication backlog starting from the
  * specified 'offset' up to the end of the backlog. */
+// 向从服务器 c 发送 backlog 中从 offset 到 backlog 尾部之间的数据
 long long addReplyReplicationBacklog(client *c, long long offset) {
     long long j, skip, len;
 
@@ -410,38 +411,50 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
 
 /* This function handles the PSYNC command from the point of view of a
  * master receiving a request for partial resynchronization.
- *
+ * 部分同步
  * On success return C_OK, otherwise C_ERR is returned and we proceed
  * with the usual full resync. */
+// 尝试进行部分 resync ，成功返回 REDIS_OK ，失败返回 REDIS_ERR 。
 int masterTryPartialResynchronization(client *c) {
+	//偏移量                 拉取的字节长度
     long long psync_offset, psync_len;
-    char *master_runid = c->argv[1]->ptr;
+    char *master_runid = c->argv[1]->ptr; //获取redisObject的指针
     char buf[128];
     int buflen;
 
     /* Is the runid of this master the same advertised by the wannabe slave
      * via PSYNC? If runid changed this master is a different instance and
      * there is no way to continue. */
+    //检查master_runid 和服务器的id 是否一致
     if (strcasecmp(master_runid, server.runid)) {
         /* Run id "?" is used by slaves that want to force a full resync. */
+    	 // 从服务器提供的 run id 和服务器的 run id 不一致
         if (master_runid[0] != '?') {
             serverLog(LL_NOTICE,"Partial resynchronization not accepted: "
                 "Runid mismatch (Client asked for runid '%s', my runid is '%s')",
                 master_runid, server.runid);
         } else {
+        	  // 从服务器提供的 run id 为 '?' ，表示强制 FULL RESYNC
             serverLog(LL_NOTICE,"Full resync requested by slave %s",
                 replicationGetSlaveName(c));
         }
+        // 需要 full resync
         goto need_full_resync;
     }
 
     /* We still have the data our slave is asking for? */
+    // 取出 psync_offset 参数
     if (getLongLongFromObjectOrReply(c,c->argv[2],&psync_offset,NULL) !=
        C_OK) goto need_full_resync;
+    // 如果没有 backlog
     if (!server.repl_backlog ||
+        // 或者 psync_offset 小于 server.repl_backlog_off
+        // （想要恢复的那部分数据已经被覆盖）
         psync_offset < server.repl_backlog_off ||
+		 // psync offset 大于 backlog 所保存的数据的偏移量
         psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen))
     {
+    	//需要进行全量同步
         serverLog(LL_NOTICE,
             "Unable to partial resync with slave %s for lack of backlog (Slave request was: %lld).", replicationGetSlaveName(c), psync_offset);
         if (psync_offset > server.master_repl_offset) {
@@ -452,9 +465,14 @@ int masterTryPartialResynchronization(client *c) {
     }
 
     /* If we reached this point, we are able to perform a partial resync:
+     *  小hiing到这里 说明可以进行部分同步
      * 1) Set client state to make it a slave.
+     *  将客户端状态设为 salve
      * 2) Inform the client we can continue with +CONTINUE
-     * 3) Send the backlog data (from the offset to the end) to the slave. */
+     *  向 slave 发送 +CONTINUE ，表示 partial resync 的请求被接受
+     * 3) Send the backlog data (from the offset to the end) to the slave.
+     * 发送 backlog 中，客户端所需要的数据
+     *  */
     c->flags |= CLIENT_SLAVE;
     c->replstate = SLAVE_STATE_ONLINE;
     c->repl_ack_time = server.unixtime;
@@ -468,6 +486,7 @@ int masterTryPartialResynchronization(client *c) {
         freeClientAsync(c);
         return C_OK;
     }
+    // 发送 backlog 中的内容（也即是从服务器缺失的那些内容）到从服务器
     psync_len = addReplyReplicationBacklog(c,psync_offset);
     serverLog(LL_NOTICE,
         "Partial resynchronization request from %s accepted. Sending %lld bytes of backlog starting from offset %lld.",
@@ -476,7 +495,7 @@ int masterTryPartialResynchronization(client *c) {
     /* Note that we don't need to set the selected DB at server.slaveseldb
      * to -1 to force the master to emit SELECT, since the slave already
      * has this state from the previous connection with the master. */
-
+    // 刷新低延迟从服务器的数量
     refreshGoodSlavesCount();
     return C_OK; /* The caller can return, no full resync needed. */
 
@@ -561,12 +580,15 @@ int startBgsaveForReplication(int mincapa) {
 }
 
 /* SYNC and PSYNC command implemenation. */
+/* SYNC ad PSYNC 命令实现. 像主服务器请求 */
 void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
+	// 已经是 SLAVE ，或者处于 MONITOR 模式，返回
     if (c->flags & CLIENT_SLAVE) return;
 
     /* Refuse SYNC requests if we are a slave but the link with our master
      * is not ok... */
+    //如果当前是从服务期但是与主服务器的链接未就绪不可以同步请求
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED) {
         addReplyError(c,"Can't SYNC while not connected with my master");
         return;
@@ -576,11 +598,12 @@ void syncCommand(client *c) {
      * the client about already issued commands. We need a fresh reply
      * buffer registering the differences between the BGSAVE and the current
      * dataset, so that we can copy to other slaves if needed. */
+    //客户端仍有数据等待输出
     if (clientHasPendingReplies(c)) {
         addReplyError(c,"SYNC and PSYNC are invalid with pending output");
         return;
     }
-
+    //保存log
     serverLog(LL_NOTICE,"Slave %s asks for synchronization",
         replicationGetSlaveName(c));
 
@@ -592,10 +615,17 @@ void syncCommand(client *c) {
      * +FULLRESYNC <runid> <offset>
      *
      * So the slave knows the new runid and offset to try a PSYNC later
-     * if the connection with the master is lost. */
+     * if the connection with the master is lost.
+     * 如果psync的命令则开始部分复制
+     * 如果失败，那么使用 full resynchronization ，
+     * 这样的话，之后如果主服务器断开，那么从服务器就可以尝试 PSYNC 了。
+     *
+     *  */
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
+        //尝试进行
         if (masterTryPartialResynchronization(c) == C_OK) {
-            server.stat_sync_partial_ok++;
+            server.stat_sync_partial_ok++;//
+            //部分同步成功
             return; /* No full resync needed, return. */
         } else {
             char *master_runid = c->argv[1]->ptr;
@@ -1723,15 +1753,26 @@ int cancelReplicationHandshake(void) {
     return 1;
 }
 
-/* Set replication to the specified master address and port. */
+/* Set replication to the specified master address and port.
+ * 开始新的主服务器的地址 ip port
+ *
+ * */
 void replicationSetMaster(char *ip, int port) {
+	//释放旧的服务器的内存
     sdsfree(server.masterhost);
+    //设置ip
     server.masterhost = sdsnew(ip);
+    //设置port
     server.masterport = port;
+    //清除之前住服务器的信息
     if (server.master) freeClient(server.master);
+    //断开开所有阻塞的客户端
     disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
+    //清除所有的从节点
     disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    //禁止PSYNC命令 清除缓冲区
     replicationDiscardCachedMaster(); /* Don't try a PSYNC. */
+    //释放backlog
     freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
     cancelReplicationHandshake();
     server.repl_state = REPL_STATE_CONNECT;
@@ -1770,10 +1811,11 @@ void replicationHandleMasterDisconnection(void) {
      * maybe we'll be able to PSYNC with our master later. We'll disconnect
      * the slaves only if we'll have to do a full resync with our master. */
 }
-
+//设置当前服务器为 client的主服务器
 void slaveofCommand(client *c) {
     /* SLAVEOF is not allowed in cluster mode as replication is automatically
      * configured using the current address of the master node. */
+	//不允许咋集群模式中运行 ？？？？ 从服务期不能当集群的主节点
     if (server.cluster_enabled) {
         addReplyError(c,"SLAVEOF not allowed in cluster mode.");
         return;
@@ -1783,6 +1825,7 @@ void slaveofCommand(client *c) {
      * into a master. Otherwise the new master address is set. */
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
         !strcasecmp(c->argv[2]->ptr,"one")) {
+    	//slave no one 将此节点转为从服务器
         if (server.masterhost) {
             replicationUnsetMaster();
             sds client = catClientInfoString(sdsempty(),c);
@@ -1791,6 +1834,7 @@ void slaveofCommand(client *c) {
             sdsfree(client);
         }
     } else {
+
         long port;
 
         if (c->flags & CLIENT_SLAVE)
@@ -1800,11 +1844,12 @@ void slaveofCommand(client *c) {
             addReplyError(c, "Command is not valid when client is a replica.");
             return;
         }
-
+        //获取端口参数
         if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
             return;
 
         /* Check if we are already attached to the specified slave */
+        // 检查输入的 host 和 port 是否服务器目前的主服务器
         if (server.masterhost && !strcasecmp(server.masterhost,c->argv[1]->ptr)
             && server.masterport == port) {
             serverLog(LL_NOTICE,"SLAVE OF would result into synchronization with the master we are already connected with. No operation performed.");
@@ -1813,8 +1858,9 @@ void slaveofCommand(client *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
+        // 开始执行复制操作
         replicationSetMaster(c->argv[1]->ptr, port);
-        sds client = catClientInfoString(sdsempty(),c);
+        sds client = catClientInfoString(sdsempty(),c);//打印客户端信息到日志
         serverLog(LL_NOTICE,"SLAVE OF %s:%d enabled (user request from '%s')",
             server.masterhost, server.masterport, client);
         sdsfree(client);

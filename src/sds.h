@@ -60,7 +60,7 @@ struct __attribute__ ((__packed__)) sdshdr16 {
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
-    uint32_t len; /* used */
+    uint32_t len; /* used *
     uint32_t alloc; /* excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];

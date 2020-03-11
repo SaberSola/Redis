@@ -52,31 +52,32 @@ typedef struct dictEntry {
         int64_t s64;
         double d;
     } v;
-    struct dictEntry *next;
+    struct dictEntry *next; //解决哈希冲突的
 } dictEntry;
 
 typedef struct dictType {
-    unsigned int (*hashFunction)(const void *key);
-    void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(void *privdata, const void *obj);
-    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *privdata, void *key);
-    void (*valDestructor)(void *privdata, void *obj);
+    unsigned int (*hashFunction)(const void *key);  //计算key的hash值
+    void *(*keyDup)(void *privdata, const void *key); //复制key的
+    void *(*valDup)(void *privdata, const void *obj); //复制value
+    int (*keyCompare)(void *privdata, const void *key1, const void *key2); //比较key的函数
+    void (*keyDestructor)(void *privdata, void *key); //销毁key的函数
+    void (*valDestructor)(void *privdata, void *obj); //销毁value的函数
 } dictType;
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
-    unsigned long sizemask;
-    unsigned long used;
+
+    dictEntry **table; //哈希数组
+    unsigned long size;//哈希表大小
+    unsigned long sizemask; //大小掩码 计算索引值
+    unsigned long used;   // 已有节点的数量
 } dictht;
 
 typedef struct dict {
-    dictType *type;
-    void *privdata;
-    dictht ht[2];
+    dictType *type; //字典类型
+    void *privdata; //私有数据
+    dictht ht[2];   //hash表 俩个hash表 ht[0]
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     int iterators; /* number of iterators currently running */
 } dict;

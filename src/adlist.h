@@ -34,8 +34,13 @@
 /* Node, List, and Iterator are the only data structures used currently. */
 
 typedef struct listNode {
+    /** 前直接点 **/
     struct listNode *prev;
+
+    /** 后置接点 **/
     struct listNode *next;
+
+    /** 节点的value **/
     void *value;
 } listNode;
 
@@ -45,11 +50,17 @@ typedef struct listIter {
 } listIter;
 
 typedef struct list {
+
+    /**头结点**/
     listNode *head;
+
+    /**尾结点**/
     listNode *tail;
+    /**包含节点数量**/
     void *(*dup)(void *ptr);
     void (*free)(void *ptr);
     int (*match)(void *ptr, void *key);
+    /**包含节点数量**/
     unsigned long len;
 } list;
 

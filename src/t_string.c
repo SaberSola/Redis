@@ -34,7 +34,7 @@
  * String Commands
  *----------------------------------------------------------------------------*/
 
-static int checkStringLength(client *c, long long size) {
+static int checkStringLength(client *c, long long size) { //
     if (size > 512*1024*1024) {
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
         return C_ERR;
@@ -45,24 +45,35 @@ static int checkStringLength(client *c, long long size) {
 /* The setGenericCommand() function implements the SET operation with different
  * options and variants. This function is called in order to implement the
  * following commands: SET, SETEX, PSETEX, SETNX.
+ *  setGenericCommand() 函数实现了 SET 、 SETEX 、 PSETEX 和 SETNX 命令
  *
  * 'flags' changes the behavior of the command (NX or XX, see belove).
+ *  flags 参数的值可以是 NX 或 XX ，它们的意义请见下文。
  *
  * 'expire' represents an expire to set in form of a Redis object as passed
  * by the user. It is interpreted according to the specified 'unit'.
+ *
+ *  expire 定义了 Redis 对象的过期时间。
+ *  而这个过期时间的格式由 unit 参数指定。
  *
  * 'ok_reply' and 'abort_reply' is what the function will reply to the client
  * if the operation is performed, or when it is not because of NX or
  * XX flags.
  *
+ *  NX 参数和 XX 参数也会改变回复。
+ *
  * If ok_reply is NULL "+OK" is used.
- * If abort_reply is NULL, "$-1" is used. */
+ *  如果 ok_reply 为 NULL ，那么 "+OK" 被返回。
+ * If abort_reply is NULL, "$-1" is used.
+ * 如果 abort_reply 为 NULL ，那么 "$-1" 被返回。
+ *
+ */
 
 #define OBJ_SET_NO_FLAGS 0
-#define OBJ_SET_NX (1<<0)     /* Set if key not exists. */
-#define OBJ_SET_XX (1<<1)     /* Set if key exists. */
-#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
-#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
+#define OBJ_SET_NX (1<<0)     /* Set if key not exists.  不存在时候set key  */
+#define OBJ_SET_XX (1<<1)     /* Set if key exists. 存在时候 */
+#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given  设置秒数*/
+#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given  设置毫秒数*/
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -74,19 +85,30 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
             addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
             return;
         }
+        // 不论输入的过期时间是秒还是毫秒
+        // Redis 实际都以毫秒的形式保存过期时间
+        // 如果输入的过期时间为秒，那么将它转换为毫秒
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
-
+       // 如果设置了 NX 或者 XX 参数，那么检查条件是否不符合这两个设置
+       // 在条件不符合时报错，报错的内容由 abort_reply 参数决定
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
         (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
     {
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
+    // 将键值关联到数据库
     setKey(c->db,key,val);
-    server.dirty++;
-    if (expire) setExpire(c->db,key,mstime()+milliseconds);
+
+    // 将数据库设为脏
+    server.dirty++;// 将数据库设为脏
+    if (expire) setExpire(c->db,key,mstime()+milliseconds); //设置过期时间
+
+    // 发送事件通知
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
+
+   //发送设置过期时间通知
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
@@ -134,8 +156,8 @@ void setCommand(client *c) {
             return;
         }
     }
-
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    // 尝试对值对象进行编码
+    c->argv[2] = tryObjectEncoding(c->argv[2]); //设置
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
 

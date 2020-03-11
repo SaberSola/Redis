@@ -460,12 +460,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
-typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
-    int refcount;
-    void *ptr;
+typedef struct redisObject { //redis 对象的基本结构
+    unsigned type:4;  //类型
+    unsigned encoding:4; //编码
+    unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) lru相关 */
+    int refcount; //引用次数
+    void *ptr;    //指向底层实现数据结构指针
 } robj;
 
 /* Macro used to obtain the current LRU clock.
@@ -502,12 +502,19 @@ struct evictionPoolEntry {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
+	 // 数据库键空间，保存着数据库中的所有键值对
     dict *dict;                 /* The keyspace for this DB */
+    // 键的过期时间，字典的键为键，字典的值为过期事件 UNIX 时间戳
     dict *expires;              /* Timeout of keys with a timeout set */
+    // 正处于阻塞状态的键
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
+    // 可以解除阻塞的键
     dict *ready_keys;           /* Blocked keys that received a PUSH */
+    // 正在被 WATCH 命令监视的键
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+
     struct evictionPoolEntry *eviction_pool;    /* Eviction pool of keys */
+    //数据库id
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
 } redisDb;
@@ -637,19 +644,19 @@ struct sharedObjectsStruct {
 
 /* ZSETs use a specialized version of Skiplists */
 typedef struct zskiplistNode {
-    robj *obj;
-    double score;
-    struct zskiplistNode *backward;
-    struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned int span;
+    robj *obj; //成员对象
+    double score; //分值
+    struct zskiplistNode *backward; //后退指针
+    struct zskiplistLevel {  // 层
+        struct zskiplistNode *forward; //前进指针
+        unsigned int span;// 跨度
     } level[];
 } zskiplistNode;
 
 typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
+    struct zskiplistNode *header, *tail; //跳跃表的头结点
     unsigned long length;
-    int level;
+    int level; //层数最大的节点层数
 } zskiplist;
 
 typedef struct zset {
@@ -703,14 +710,20 @@ struct clusterState;
 
 struct redisServer {
     /* General */
+    // main函数的进程
     pid_t pid;                  /* Main process pid. */
+    //配置文件的绝对地址
     char *configfile;           /* Absolute config file path, or NULL */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
+    // 命令表
     dict *commands;             /* Command table */
+    // 命令表（无 rename 配置选项的作用）
     dict *orig_commands;        /* Command table before command renaming. */
+
+    // 事件状态
     aeEventLoop *el;
     unsigned lruclock:LRU_BITS; /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */

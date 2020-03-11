@@ -938,19 +938,26 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * the "basetime" argument is used to signal what the base time is (either 0
  * for *AT variants of the command, or the current time for relative expires).
  *
+ * 这个函数是 EXPIRE 、 PEXPIRE 、 EXPIREAT 和 PEXPIREAT 命令的底层实现函数。
+ * 命令的第二个参数可能是绝对值，也可能是相对值。
+ * 当执行 *AT 命令时， basetime 为 0 ，在其他情况下，它保存的就是当前的绝对时间。
+ *
+ *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
-
+    //取出 when 参数
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
 
+    //传入时间是秒转为毫秒
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
     /* No key, return zero. */
+    //如果未找到对应的key 返回zero
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
@@ -959,12 +966,16 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context
      * of a slave instance.
-     *
+     *  在载入数据时，或者服务器非主节点的时候，
+     *  即使 EXPIRE 的 TTL 为负数，或者 EXPIREAT 提供的时间戳已经过期，
+     *  服务器也不会主动删除这个键，而是等待主节点发来显式的 DEL 命令。
      * Instead we take the other branch of the IF statement setting an expire
      * (possibly in the past) and wait for an explicit DEL from the master. */
+
+    // 程序会继续将（一个可能已经过期的 TTL）设置为键的过期时间，
     if (when <= mstime() && !server.loading && !server.masterhost) {
         robj *aux;
-
+        // when 提供的时间已经过期，服务器为主节点，并且没在载入数据
         serverAssertWithInfo(c,key,dbDelete(c->db,key));
         server.dirty++;
 
@@ -977,6 +988,9 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
+    	// 设置键的过期时间
+    	// 如果服务器为附属节点，或者服务器正在载入，
+        // 那么这个 when 有可能已经过期的
         setExpire(c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);

@@ -221,28 +221,29 @@ union clusterMsgData {
 
 #define CLUSTER_PROTO_VER 0 /* Cluster bus protocol version. */
 
+//心跳信息
 typedef struct {
-    char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
-    uint32_t totlen;    /* Total length of this message */
-    uint16_t ver;       /* Protocol version, currently set to 0. */
-    uint16_t notused0;  /* 2 bytes not used. */
-    uint16_t type;      /* Message type */
+    char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */ //信号
+    uint32_t totlen;    /* Total length of this message */ //消息总长度
+    uint16_t ver;       /* Protocol version, currently set to 0. */ //版本
+    uint16_t notused0;  /* 2 bytes not used. *///2字节的展位
+    uint16_t type;      /* Message type */ //消息类型用来区分 meet ping pong
     uint16_t count;     /* Only used for some kind of messages. */
-    uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
-    uint64_t configEpoch;   /* The config epoch if it's a master, or the last
+    uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */ //当前纪元 投票
+    uint64_t configEpoch;   /* The config epoch if it's a master, or the last //主.从 主的配置纪元
                                epoch advertised by its master if it is a
                                slave. */
     uint64_t offset;    /* Master replication offset if node is a master or
                            processed replication offset if node is a slave. */
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
-    unsigned char myslots[CLUSTER_SLOTS/8];
-    char slaveof[CLUSTER_NAMELEN];
+    unsigned char myslots[CLUSTER_SLOTS/8];   //槽信息
+    char slaveof[CLUSTER_NAMELEN];  //从节点的话 记录主节点的地址
     char notused1[32];  /* 32 bytes reserved for future usage. */
-    uint16_t port;      /* Sender TCP base port */
+    uint16_t port;      /* Sender TCP base port */ 端口
     uint16_t flags;     /* Sender node flags */
-    unsigned char state; /* Cluster state from the POV of the sender */
+    unsigned char state; /* Cluster state from the POV of the sender */ //节点状态
     unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
-    union clusterMsgData data;
+    union clusterMsgData data;//消息体内容
 } clusterMsg;
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))

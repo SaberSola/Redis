@@ -241,12 +241,26 @@ int dictExpand(dict *d, unsigned long size)
  * since part of the hash table may be composed of empty spaces, it is not
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
- * work it does would be unbound and the function may block for a long time. */
+ * work it does would be unbound and the function may block for a long time.
+ * 执行 N 步渐进式 rehash 。
+ *
+ * 返回 1 表示仍有键需要从 0 号哈希表移动到 1 号哈希表，
+ *
+ * 返回 0 则表示所有键都已经迁移完毕。
+ *
+ * 注意，每步 rehash 都是以一个哈希表索引（桶）作为单位的，
+ *
+ * 一个桶里可能会有多个节点，
+ *
+ * 被 rehash 的桶里的所有节点都会被移动到新哈希表。
+ *
+ * */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    //必须在rehash 中进行
     if (!dictIsRehashing(d)) return 0;
-
-    while(n-- && d->ht[0].used != 0) {
+    //进行N步迁移
+    while(n-- && d->ht[0].used != 0) { // 0 0号的hash筒子有值就是继续进行
         dictEntry *de, *nextde;
 
         /* Note that rehashidx can't overflow as we are sure there are more
@@ -276,8 +290,8 @@ int dictRehash(dict *d, int n) {
 
     /* Check if we already rehashed the whole table... */
     if (d->ht[0].used == 0) {
-        zfree(d->ht[0].table);
-        d->ht[0] = d->ht[1];
+        zfree(d->ht[0].table);//释放0筒子
+        d->ht[0] = d->ht[1];  //1筒子-->?
         _dictReset(&d->ht[1]);
         d->rehashidx = -1;
         return 0;
